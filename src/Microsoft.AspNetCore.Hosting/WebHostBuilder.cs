@@ -12,7 +12,6 @@ using Microsoft.AspNetCore.Hosting.Internal;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ObjectPool;
 using Microsoft.Extensions.PlatformAbstractions;
@@ -31,6 +30,8 @@ namespace Microsoft.AspNetCore.Hosting
         private IConfiguration _config;
         private ILoggerFactory _loggerFactory;
         private WebHostOptions _options;
+        private bool _webHostBuilt;
+        private bool _disposeLoggerFactory;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="WebHostBuilder"/> class.
@@ -48,7 +49,7 @@ namespace Microsoft.AspNetCore.Hosting
             if (string.IsNullOrEmpty(GetSetting(WebHostDefaults.EnvironmentKey)))
             {
                 // Try adding legacy environment keys, never remove these.
-                UseSetting(WebHostDefaults.EnvironmentKey, Environment.GetEnvironmentVariable("Hosting:Environment") 
+                UseSetting(WebHostDefaults.EnvironmentKey, Environment.GetEnvironmentVariable("Hosting:Environment")
                     ?? Environment.GetEnvironmentVariable("ASPNET_ENV"));
             }
 
@@ -135,6 +136,12 @@ namespace Microsoft.AspNetCore.Hosting
         /// </summary>
         public IWebHost Build()
         {
+            if (_webHostBuilt)
+            {
+                throw new InvalidOperationException(Resources.WebHostBuilder_SingleInstance);
+            }
+            _webHostBuilt = true;
+
             // Warn about deprecated environment variables
             if (Environment.GetEnvironmentVariable("Hosting:Environment") != null)
             {
@@ -154,7 +161,12 @@ namespace Microsoft.AspNetCore.Hosting
             var hostingServices = BuildHostingServices();
             var hostingContainer = hostingServices.BuildServiceProvider();
 
-            var host = new WebHost(hostingServices, hostingContainer, _options, _config);
+            var host = new WebHost(
+                hostingServices,
+                hostingContainer,
+                _options,
+                _config,
+                _disposeLoggerFactory ? _loggerFactory : null);
 
             host.Initialize();
 
@@ -178,6 +190,7 @@ namespace Microsoft.AspNetCore.Hosting
             if (_loggerFactory == null)
             {
                 _loggerFactory = new LoggerFactory();
+                _disposeLoggerFactory = true;
             }
 
             foreach (var configureLogging in _configureLoggingDelegates)
@@ -195,9 +208,8 @@ namespace Microsoft.AspNetCore.Hosting
             services.AddTransient<IHttpContextFactory, HttpContextFactory>();
             services.AddOptions();
 
-            var diagnosticSource = new DiagnosticListener("Microsoft.AspNetCore");
-            services.AddSingleton<DiagnosticSource>(diagnosticSource);
-            services.AddSingleton<DiagnosticListener>(diagnosticSource);
+            services.AddSingleton<DiagnosticListener>(provider => new DiagnosticListener("Microsoft.AspNetCore"));
+            services.AddSingleton<DiagnosticSource>(provider => provider.GetService<DiagnosticListener>());
 
             // Conjure up a RequestServices
             services.AddTransient<IStartupFilter, AutoRequestServicesStartupFilter>();

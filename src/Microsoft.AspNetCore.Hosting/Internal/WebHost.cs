@@ -33,6 +33,7 @@ namespace Microsoft.AspNetCore.Hosting.Internal
         private readonly ApplicationLifetime _applicationLifetime;
         private readonly WebHostOptions _options;
         private readonly IConfiguration _config;
+        private readonly ILoggerFactory _loggerFactory;
 
         private IServiceProvider _applicationServices;
         private RequestDelegate _application;
@@ -43,11 +44,7 @@ namespace Microsoft.AspNetCore.Hosting.Internal
 
         private IServer Server { get; set; }
 
-        public WebHost(
-            IServiceCollection appServices,
-            IServiceProvider hostingServiceProvider,
-            WebHostOptions options,
-            IConfiguration config)
+        public WebHost(IServiceCollection appServices, IServiceProvider hostingServiceProvider, WebHostOptions options, IConfiguration config, ILoggerFactory loggerFactory)
         {
             if (appServices == null)
             {
@@ -65,6 +62,7 @@ namespace Microsoft.AspNetCore.Hosting.Internal
             }
 
             _config = config;
+            _loggerFactory = loggerFactory;
             _options = options;
             _applicationServiceCollection = appServices;
             _hostingServiceProvider = hostingServiceProvider;
@@ -245,23 +243,10 @@ namespace Microsoft.AspNetCore.Hosting.Internal
         {
             _logger?.Shutdown();
             _applicationLifetime.StopApplication();
+            (_hostingServiceProvider as IDisposable)?.Dispose();
             (_applicationServices as IDisposable)?.Dispose();
+            _loggerFactory?.Dispose();
             _applicationLifetime.NotifyStopped();
-        }
-
-        private class Disposable : IDisposable
-        {
-            private Action _dispose;
-
-            public Disposable(Action dispose)
-            {
-                _dispose = dispose;
-            }
-
-            public void Dispose()
-            {
-                Interlocked.Exchange(ref _dispose, () => { }).Invoke();
-            }
         }
     }
 }
